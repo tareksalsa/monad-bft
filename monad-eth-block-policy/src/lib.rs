@@ -673,12 +673,16 @@ where
         for nonce_usages in self
             .committed_cache
             .blocks
-            // Committed cache is guaranteed to have blocks starting from N-2K
-            .range(base_seq_num + SeqNum(1)..)
-            .map(|(_, block)| &block.nonce_usages)
-            .chain(extending_blocks.iter().map(|block| &block.nonce_usages))
+            .iter()
+            .map(|(seq_num, block)| (*seq_num, &block.nonce_usages))
+            .chain(
+                extending_blocks
+                    .iter()
+                    .map(|block| (block.get_seq_num(), &block.nonce_usages)),
+            )
+            .filter(|(seq_num, _)| *seq_num > base_seq_num)
             .rev()
-            .map(|nonce_usages| {
+            .map(|(_, nonce_usages)| {
                 nonce_usages
                     .map
                     .iter()
@@ -1390,7 +1394,7 @@ mod test {
         make_eip7702_tx_with_value, make_signed_authorization, recover_tx, secret_to_eth_address,
         sign_authorization,
     };
-    use monad_state_backend::{InMemoryStateInner, NopStateBackend};
+    use monad_state_backend::NopStateBackend;
     use monad_testutil::signing::MockSignatures;
     use monad_types::{Hash, SeqNum};
     use proptest::{prelude::*, strategy::Just};
@@ -3023,7 +3027,7 @@ mod test {
             ChainRevisionType,
         >::new(GENESIS_SEQ_NUM, EXEC_DELAY.0);
 
-        let state_backend = InMemoryStateInner::genesis(Balance::MAX, block_policy.execution_delay);
+        let state_backend = NopStateBackend::default();
 
         let addresses = [secret_to_eth_address(S2)];
 
@@ -3075,6 +3079,40 @@ mod test {
                             0,
                         ))],
                     )],
+                    addresses.iter(),
+                )
+                .unwrap()
+                .pop_first()
+                .unwrap();
+
+            assert_eq!(s2, &secret_to_eth_address(S2));
+            assert_eq!(s2_nonce, 0);
+        }
+
+        // Only resolve nonce in the last execution_delay blocks
+        {
+            let (s2, s2_nonce) = block_policy
+                .get_account_base_nonces(
+                    SeqNum(10),
+                    &state_backend,
+                    &vec![
+                        // nonces beyond execution_delay should not be taken into account
+                        &make_test_block(
+                            Round(1),
+                            SeqNum(7),
+                            vec![recover_tx(make_eip7702_tx(
+                                S1,
+                                BASE_FEE as u128,
+                                0,
+                                100_000,
+                                0,
+                                vec![make_signed_authorization(S2, secret_to_eth_address(S1), 0)],
+                                0,
+                            ))],
+                        ),
+                        &make_test_block(Round(1), SeqNum(8), vec![]),
+                        &make_test_block(Round(1), SeqNum(9), vec![]),
+                    ],
                     addresses.iter(),
                 )
                 .unwrap()
