@@ -1,1 +1,31 @@
 .github/workflows/build.yml
+name: build-monad-bft
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential pkg-config libssl-dev clang cmake
+
+      - name: Build (release)
+        run: |
+          cargo build --release --workspace
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: monad-bft-artifacts
+          path: target/release/*
